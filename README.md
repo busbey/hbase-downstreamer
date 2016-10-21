@@ -59,6 +59,14 @@ pass -U to maven building):
         -Dhbase.staging.repository='https://repository.apache.org/content/repositories/orgapachehbase-1001' \
         clean package
 
+To test building against in-progress upstream branches that contain API changes, you'll need a local installation
+of the relevant branch's build output. To do this, join the [HBase community](https://hbase.apache.org/) and follow
+the instructions checkout and then locally install the artifacts for e.g. the 2.0.0-SNAPSHOT codebase. Then you
+can activate the hbase-2 profile and it will pull from your local cache of jars under .m2/repository:
+
+    $ mvn -Phbase-2 -Dhbase.version=2.0.0-SNAPSHOT clean package
+
+
 testing client-server compatibility with a standalone client
 ============================================================
 
@@ -85,19 +93,19 @@ The application should print out many entries from an hbase internal table and t
 spark streaming test application
 ================================
 
-This project includes a Spark Streaming application with renewed tokens for long-running against a kerberos-enabled hbase cluster.
+This project includes a Apache Spark Streaming application with renewed tokens for long-running against a kerberos-enabled hbase cluster.
 
 Prerequisites:
-    
+
   - hbase client configs deployed to all yarn worker nodes (in /etc/hbase/conf)
   - have a keytab and associated principal with run access for yarn and write access to hbase (replace 'auser@EXAMPLE.COM' with a real principal for your KDC)
 
-Build as described above. Optionally choose Scala and Spark versions appropriate for your distribution via `scala.version` and `spark.version`. The defaults are the equivalent to
-    
-        $ mvn -Dscala.version=2.10 -Dspark.version=1.5.0
-    
+Build as described above. Optionally choose Scala and Apache Spark versions appropriate for your distribution via `scala.version` and `spark.version`. The defaults are the equivalent to
+
+        $ mvn -Dscala.version=2.10.4 -Dspark.version=1.5.0
+
 Run a netcat instance generating data (below examples presume this host is named _netcat.running.host.example.com_
-    
+
         $ yes | nc -lk 1772
 
 Create needed test table in hbase and grant access to 'auser' (presumes hbase user has stored kerberos tickets)
@@ -141,4 +149,45 @@ Verify results in hbase (presumes you have stored kerberos tickets)
         10 row(s) in 0.0400 seconds
 
         nil
+
+Spark Streaming example with new HBase integration API
+======================================================
+
+The Apache HBase project has recently been working towards easier integration for folks trying to use it with Apache Spark. This project includes an example use of that API that will behave properly within the constraints of Apache Spark Streaming's recovery mechanism for long-lived applications. For more information on special considerations when creating applications to work with Spark Streaming Checkpoints, please refer to [the Spark Streaming programming guide's section on accumulators and broadcast variables](http://spark.apache.org/docs/1.6.1/streaming-programming-guide.html#accumulators-and-broadcast-variables).
+
+Prerequisites:
+
+  - hbase client configs deployed to the submitting node (e.g. /etc/hbase/conf)
+  - netcat
+
+You can read the source for this example in the repository as ['RecoverableNetworkWordCountHBase'](src/main/scala/org/hbase/downstreamer/spark/RecoverableNetworkWordCountHBase.scala).
+
+To run this example you will need appropriate access to cluster resources. On a secure deployment, that usually means having Kerberos tickets. For those examples that involve the `spark-submit` command, you should either `kinit` as an authorized user before executing the command or use the `--principal` and `--keytab` arguments to specify the credentials for cluster access.
+
+Build as described above, using the hbase-2 profile. Optionally choose Scala and Apache Spark versions appropriate for your distribution via `scala.version` and `spark.version`. The defaults are the equivalent to
+
+        $ mvn -Phbase-2 -Dscala.version=2.10.4 -Dspark.version=1.6.2
+
+Run a netcat instance generating data (below examples presume this host is named _netcat.running.host.example.com_
+
+        $ yes | nc -lk 1772
+
+Create needed test table in hbase and grant access to 'auser' (presumes hbase user has stored kerberos tickets)
+
+        $ sudo -u hbase hbase shell
+        hbase(main):001:0> create 'counts', 'word_counts'
+        0 row(s) in 0.6740 seconds
+
+        => Hbase::Table - counts
+        hbase(main):002:0>  grant 'auser', 'RW', 'counts'
+        0 row(s) in 0.7300 seconds
+
+        hbase(main):003:0>
+
+Before we proceed, ensure any prior runs don't have saved state. For secure clusters, you should be kinited as a user with sufficient privileges to submit spark jobs and read/write to a home directory.
+```bash
+$ hdfs dfs -rm -R -skipTrash checkpoint-wordcount checkpoint-wordcount-hbase
+```
+
+You can now run the simple HBase example wordcount. Since this is the first run, you should see a log message about a new context being created.
 

@@ -17,7 +17,8 @@
   <url>https://github.com/saintstack/hbase-downstreamer</url>
   <properties>
     <hbase.staging.repository>https://repository.apache.org/content/repositories/orgapachehbase-076/</hbase.staging.repository>
-    <scala.version>2.10</scala.version>
+    <scala.binary.version>2.10</scala.binary.version>
+    <scala.version>2.10.4</scala.version>
     <slf4j.version>1.7.5</slf4j.version>
     <spark.version>1.5.0</spark.version>
   </properties>
@@ -74,7 +75,7 @@
     <!-- Spark Streaming dependencies, should not be included in standalone jar -->
     <dependency>
       <groupId>org.apache.spark</groupId>
-      <artifactId>spark-streaming_${scala.version}</artifactId>
+      <artifactId>spark-streaming_${scala.binary.version}</artifactId>
       <version>${spark.version}</version>
       <scope>provided</scope>
     </dependency>
@@ -86,6 +87,53 @@
     </repository>
   </repositories>
   <profiles>
+    <profile>
+      <id>hbase-2</id>
+      <properties>
+        <hbase.version>2.0.0-SNAPSHOT</hbase.version>
+        <hadoop.version>3.0.0-alpha1</hadoop.version>
+        <spark.version>1.6.2</spark.version>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.hbase</groupId>
+          <artifactId>hbase-spark</artifactId>
+          <version>${hbase.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.hbase</groupId>
+          <artifactId>hbase-hadoop2-compat</artifactId>
+          <version>${hbase.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
+        </dependency>
+        <!--We need hadoop2 test jar or minidfs at a minimum.
+          It is not transitively included.
+          -->
+        <dependency>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-minicluster</artifactId>
+          <version>${hadoop.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <excludes>
+                <!-- Requires the pre-1.0 APIs, no longer in 2.0+ -->
+                <exclude>org/hbase/downstreamer/OldApi.java</exclude>
+                <!-- Uses HTable directly, with constructor no longer in 2.0+ -->
+                <exclude>org/hbase/downstreamer/GetMetaContent.java</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
     <profile>
       <id>hbase-1</id>
       <activation>
@@ -114,6 +162,20 @@
           <scope>test</scope>
         </dependency>
       </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>net.alchim31.maven</groupId>
+            <artifactId>scala-maven-plugin</artifactId>
+            <configuration>
+              <excludes>
+                <!-- requires HBase 2.0+ due to hbase-spark API -->
+                <exclude>org/hbase/downstreamer/spark/RecoverableNetworkWordCountHBase.scala</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
     <profile>
       <id>hbase-0.98</id>
@@ -140,6 +202,30 @@
           <scope>test</scope>
         </dependency>
       </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>net.alchim31.maven</groupId>
+            <artifactId>scala-maven-plugin</artifactId>
+            <configuration>
+              <excludes>
+                <!-- requires HBase 2.0+ due to hbase-spark API -->
+                <exclude>org/hbase/downstreamer/spark/RecoverableNetworkWordCountHBase.scala</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <excludes>
+                <!-- Requires 1.0 APIs -->
+                <exclude>org/hbase/downstreamer/spark/JavaNetworkWordCountStoreInHBase.java</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
     <profile>
       <id>hbase-0.98-hadoop1</id>
@@ -165,6 +251,30 @@
           <scope>test</scope>
         </dependency>
       </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>net.alchim31.maven</groupId>
+            <artifactId>scala-maven-plugin</artifactId>
+            <configuration>
+              <excludes>
+                <!-- requires HBase 2.0+ due to hbase-spark API -->
+                <exclude>org/hbase/downstreamer/spark/RecoverableNetworkWordCountHBase.scala</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <excludes>
+                <!-- Requires 1.0 APIs -->
+                <exclude>org/hbase/downstreamer/spark/JavaNetworkWordCountStoreInHBase.java</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
     <profile>
       <id>client-standalone</id>
@@ -219,6 +329,40 @@
       </plugins>
     </pluginManagement>
     <plugins>
+      <plugin>
+        <groupId>net.alchim31.maven</groupId>
+        <artifactId>scala-maven-plugin</artifactId>
+        <version>3.2.0</version>
+        <configuration>
+          <!-- By default, we exclude classes that rely on features that aren't available across
+               all supported versions. They'll be activated in profiles for versions that support
+               them.
+            -->
+          <scalaVersion>${scala.version}</scalaVersion>
+        </configuration>
+        <executions>
+          <execution>
+            <id>scala-compile-first</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>add-source</goal>
+              <goal>compile</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>scala-test-compile</id>
+            <phase>process-test-resources</phase>
+            <goals>
+              <goal>testCompile</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.5.1</version>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
